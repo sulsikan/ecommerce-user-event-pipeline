@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# Local datasets
+data/*
+!data/README.md
