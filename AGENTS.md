@@ -22,3 +22,11 @@ skills and `docs/harness/`.
   `docs/harness/` or skill `references/` files.
 - No project-wide build command is defined yet. Validate harness changes with
   path checks and by reading generated `SKILL.md` frontmatter.
+
+## Work Log
+- Record meaningful project work in `docs/project-log.md` after completing it.
+- Log entries should include the user request, work performed, files changed,
+  verification, and next step when relevant.
+- Do not log prompts that only ask for status, confirmation, explanation, or a
+  plan when no repository files, commands, configuration, or implementation work
+  changed.
