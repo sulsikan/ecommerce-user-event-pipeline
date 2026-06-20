@@ -86,3 +86,53 @@ MVP.
 Create a small fixture CSV and implement the checkpointed CSV replay producer
 that publishes events to Kafka topic `ecommerce.events.raw.v1`.
 
+## 2026-06-20 - Add Fixture CSV and Checkpointed Kafka Replay Producer
+
+### User Request
+Continue with the next planned implementation step after the Phase 1 local
+infrastructure setup.
+
+### Work Performed
+- Added `tests/fixtures/sample_events.csv` with a small ecommerce event sample
+  that includes view, cart, purchase, nullable category/brand cases, and one
+  intentionally unsupported event type for later validation testing.
+- Added `src/producer/csv_replay_producer.py`, a standard-library Python replay
+  producer that reads CSV rows, converts them to JSON payloads, and publishes
+  them to Kafka through the Kafka CLI in the running Docker Kafka container.
+- Added producer metadata fields: `schema_version`, `source_file`,
+  `source_line`, and `replay_time`.
+- Added producer checkpoint support so successful publishes can resume from the
+  last source line.
+- Added optional topic creation through `--create-topic`.
+- Made the producer executable.
+- Tightened `.gitignore` so runtime files under `storage/` stay local while
+  `.gitkeep` placeholders remain trackable.
+
+### Files Changed
+- `.gitignore`
+- `src/producer/csv_replay_producer.py`
+- `tests/fixtures/sample_events.csv`
+- `docs/project-log.md`
+
+### Verification
+- Compiled `src/producer/csv_replay_producer.py` with Python `compile()` without
+  writing `__pycache__`.
+- Ran the producer with `--publisher stdout --max-events 2` and confirmed CSV
+  rows are converted to keyed JSON events.
+- Confirmed Kafka was running and initially had no user topics.
+- Ran the producer against Kafka with `--create-topic`, publishing 7 fixture
+  events to `ecommerce.events.raw.v1`.
+- Described the Kafka topic and confirmed it has 6 partitions and replication
+  factor 1.
+- Consumed 7 messages from `ecommerce.events.raw.v1` and confirmed the expected
+  keyed JSON events were present.
+- Inspected the runtime checkpoint and confirmed `last_source_line` is 8 after
+  publishing the fixture.
+- Verified `storage/checkpoints/fixture_replay_checkpoint.json` is ignored by
+  Git.
+
+### Next Step
+Implement the Spark Structured Streaming bronze reader that consumes
+`ecommerce.events.raw.v1`, parses Kafka key/value metadata, and writes raw event
+records to the bronze storage path.
+
