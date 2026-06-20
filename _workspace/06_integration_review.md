@@ -14,8 +14,8 @@ pass
 - None found.
 
 ## Non-Blocking Improvements
-- Decide whether ClickHouse should store only aggregates or also validated
-  events for drilldown.
+- Treat ClickHouse as a Phase 2 OLAP serving layer and decide whether it should
+  store only aggregates or also validated events for drilldown.
 - Decide replay speed and latency SLO before implementation.
 - Benchmark unknown `category_code` rate before finalizing the warning threshold.
 - Add privacy handling for `user_id` if dashboards expose user-level data.

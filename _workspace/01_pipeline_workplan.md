@@ -23,9 +23,15 @@
 | Broker | Kafka with 3 core topics | Required streaming backbone and replay buffer. |
 | Processing | Spark Structured Streaming | Required streaming computation and stateful aggregations. |
 | Durable lake | Delta/Parquet on local disk or MinIO | Keeps raw and validated event history replayable. |
-| Query store | ClickHouse | Fast time-series and aggregate queries for Grafana. |
-| Metrics | Prometheus | Scrapes pipeline, Kafka, Spark, producer, and validation metrics. |
+| MVP metrics store | Prometheus | Stores pipeline health plus pre-aggregated business metrics for Grafana. |
+| Optional OLAP store | ClickHouse | Added after MVP to compare SQL OLAP serving performance. |
 | Dashboard | Grafana | Required dashboard UI for business and operational views. |
+
+## Delivery Phases
+| Phase | Runtime Path | Goal |
+| --- | --- | --- |
+| 1 | Kafka -> Spark Streaming -> Prometheus -> Grafana | Build the simplest real-time dashboard and measure baseline throughput, latency, and dashboard freshness. |
+| 2 | Kafka -> Spark Streaming -> ClickHouse + Prometheus -> Grafana | Add OLAP serving for richer category/brand/time-window analysis and compare against the baseline. |
 
 ## Main Deliverables
 - Project architecture with component responsibilities.
@@ -34,6 +40,7 @@
 - Spark streaming flow and checkpoint strategy.
 - Data quality and quarantine rules.
 - Grafana dashboard and monitoring plan.
+- Performance comparison plan for Prometheus-only versus ClickHouse-backed dashboards.
 - Integration review confirming traceability from source CSV to dashboard.
 
 ## Non-Goals for This Pass
@@ -44,6 +51,7 @@
 
 ## Acceptance Criteria
 - The design uses Kafka, Spark Streaming, and Grafana directly.
-- Every dashboard metric traces back to a schema field and Spark output.
+- Phase 1 dashboard metrics trace back to Spark outputs exported to Prometheus.
+- Phase 2 dashboard metrics trace back to Spark outputs written to ClickHouse.
 - Severe data quality failures have monitoring signals.
 - The design explains how a static CSV becomes a real-time stream.

@@ -52,7 +52,7 @@
 - Lake partitions:
   - `event_date`
   - optionally `event_type`
-- ClickHouse aggregate ordering:
+- Optional ClickHouse aggregate ordering for Phase 2:
   - `window_start`
   - `event_type`
   - `category_label`

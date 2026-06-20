@@ -30,8 +30,10 @@
 ## Freshness, Completeness, Validity, Uniqueness, Reconciliation
 - Freshness:
   - latest processed `event_time` should be within 5 minutes of replay head.
-  - ClickHouse aggregate max `window_end` should advance every minute during
-    replay.
+  - Phase 1 Prometheus aggregate metrics should update every scrape interval
+    during replay.
+  - Phase 2 ClickHouse aggregate max `window_end` should advance every minute
+    during replay.
 - Completeness:
   - raw Kafka consumed count should equal silver valid count plus quarantine
     count for each micro-batch.
@@ -67,7 +69,7 @@
 | `stream_records_valid_total` | `topic` | Spark validation |
 | `stream_records_quarantined_total` | `rule_id`, `rule_name` | Spark validation |
 | `stream_replay_lag_seconds` | `producer`, `topic` | producer and Spark |
-| `aggregate_freshness_seconds` | `aggregate_name` | Spark or ClickHouse probe |
+| `aggregate_freshness_seconds` | `aggregate_name`, `sink` | Spark, Prometheus, or ClickHouse probe |
 
 ## Test Data or Fixture Needs
 - A small CSV fixture with:

@@ -3,10 +3,12 @@
 ## Summary
 Use the Kaggle `data/2019-Oct.csv` file as a historical event source and replay
 it into Kafka to simulate a live ecommerce event stream. Spark Structured
-Streaming reads Kafka, validates and enriches events, writes durable event
-history to Delta/Parquet, writes dashboard aggregates to ClickHouse, and exports
-pipeline and data-quality metrics to Prometheus. Grafana reads ClickHouse for
-business dashboards and Prometheus for pipeline health dashboards.
+Streaming reads Kafka, validates and enriches events, and writes durable event
+history to Delta/Parquet. Phase 1 exports pre-aggregated business, operational,
+and data-quality metrics to Prometheus so Grafana can run with the smallest
+serving stack. Phase 2 adds ClickHouse as an OLAP serving layer for richer
+SQL-backed category, brand, and time-window analysis, then compares its
+performance against the Prometheus-only baseline.
 
 ## Observed Source Data
 - File: `data/2019-Oct.csv`
@@ -23,6 +25,8 @@ business dashboards and Prometheus for pipeline health dashboards.
 
 ## Proposed Architecture
 
+### Phase 1: Prometheus-Only MVP
+
 ```text
 data/2019-Oct.csv
   |
@@ -37,12 +41,36 @@ Spark Structured Streaming
   |-- bronze raw Delta/Parquet
   |-- silver validated events Delta/Parquet
   |-- invalid events quarantine + Kafka DLQ
-  |-- gold aggregates to ClickHouse
-  |-- metrics to Prometheus
+  |-- business, pipeline, and quality metrics to Prometheus
   |
   v
 Grafana
-  |-- ClickHouse datasource for business metrics
+  |-- Prometheus datasource for business, pipeline, and quality metrics
+```
+
+
+### Phase 2: ClickHouse OLAP Extension
+
+```text
+data/2019-Oct.csv
+  |
+  v
+CSV replay producer
+  |
+  v
+Kafka topic: ecommerce.events.raw.v1
+  |
+  v
+Spark Structured Streaming
+  |-- bronze raw Delta/Parquet
+  |-- silver validated events Delta/Parquet
+  |-- invalid events quarantine + Kafka DLQ
+  |-- business aggregates to ClickHouse
+  |-- pipeline and quality metrics to Prometheus
+  |
+  v
+Grafana
+  |-- ClickHouse datasource for business analytics
   |-- Prometheus datasource for pipeline and quality metrics
 ```
 
@@ -53,8 +81,8 @@ Grafana
 | Kafka | Buffers raw events, decouples ingestion from processing, supports replay from offsets. |
 | Spark Structured Streaming | Parses, validates, enriches, aggregates, and writes streaming outputs. |
 | Delta/Parquet storage | Stores bronze raw events and silver validated events for audit and replay. |
-| ClickHouse | Serves low-latency aggregate queries to Grafana. |
-| Prometheus | Stores operational and data quality metrics. |
+| Prometheus | Phase 1 serving layer for pre-aggregated business, operational, and data quality metrics. |
+| ClickHouse | Phase 2 OLAP serving layer for richer SQL-backed aggregate queries in Grafana. |
 | Grafana | Displays live ecommerce, funnel, revenue, pipeline health, and data quality dashboards. |
 
 ## Kafka Design
@@ -76,13 +104,19 @@ Recommended raw topic settings:
 | --- | --- | --- | --- |
 | Bronze stream | Kafka raw topic | raw Delta/Parquet | Preserve raw payload and Kafka metadata. |
 | Silver stream | Kafka raw topic or bronze | validated events and invalid quarantine | Parse, normalize, validate, derive labels. |
-| Traffic aggregation | validated events | ClickHouse `event_metrics_1m` | Event counts by minute and type. |
-| Funnel aggregation | validated events | ClickHouse `funnel_metrics_5m` | View/cart/purchase counts by category. |
-| Revenue aggregation | purchase events | ClickHouse `revenue_metrics_1m` | Purchases and revenue by category/brand. |
-| Quality metrics | validation results | Prometheus and ClickHouse optional | Rule failures by readable rule name. |
+| Traffic aggregation | validated events | Phase 1 Prometheus metrics; Phase 2 ClickHouse `event_metrics_1m` | Event counts by minute and type. |
+| Funnel aggregation | validated events | Phase 1 Prometheus metrics; Phase 2 ClickHouse `funnel_metrics_5m` | View/cart/purchase counts by category. |
+| Revenue aggregation | purchase events | Phase 1 Prometheus metrics; Phase 2 ClickHouse `revenue_metrics_1m` | Purchases and revenue by category/brand. |
+| Quality metrics | validation results | Prometheus | Rule failures by readable rule name. |
 
 Use event-time watermarks because the source has an original `event_time`.
 During replay, ingestion time and event time are intentionally different.
+
+Phase 1 Prometheus metrics must keep label cardinality controlled. Do not use
+`product_id`, `user_id`, or `user_session` as metric labels. Use low-cardinality
+labels such as `event_type`, `category_l1`, `category_label` after top-N
+filtering, `rule_name`, and `severity`. Phase 2 ClickHouse is where richer
+brand/category drilldown and SQL exploration should live.
 
 ## Canonical Event Model
 Required fields:
@@ -152,7 +186,8 @@ Validation metrics should include both machine-readable IDs and readable labels:
 - Spark processed rows per second.
 - Producer replay progress.
 - Aggregate freshness.
-- ClickHouse write latency.
+- Prometheus scrape freshness.
+- ClickHouse write latency in Phase 2.
 
 ### Data Quality
 - Rule failures by readable rule name.
@@ -167,10 +202,10 @@ Validation metrics should include both machine-readable IDs and readable labels:
 | `storage/bronze/events` | raw Kafka payload and metadata | audit and replay |
 | `storage/silver/events` | canonical valid events | debugging and backfill |
 | `storage/quarantine/events` | invalid records with rule evidence | data quality investigation |
-| ClickHouse `event_metrics_1m` | traffic aggregates | Grafana overview |
-| ClickHouse `funnel_metrics_5m` | funnel aggregates | Grafana conversion panels |
-| ClickHouse `revenue_metrics_1m` | revenue aggregates | Grafana revenue panels |
-| Prometheus | runtime and quality metrics | Grafana health and alerts |
+| Prometheus | Phase 1 business aggregates, runtime metrics, and quality metrics | Grafana MVP dashboards |
+| ClickHouse `event_metrics_1m` | Phase 2 traffic aggregates | Grafana overview and OLAP comparison |
+| ClickHouse `funnel_metrics_5m` | Phase 2 funnel aggregates | Grafana conversion panels and OLAP comparison |
+| ClickHouse `revenue_metrics_1m` | Phase 2 revenue aggregates | Grafana revenue panels and OLAP comparison |
 
 ## Initial Project Structure
 
@@ -186,7 +221,7 @@ Validation metrics should include both machine-readable IDs and readable labels:
 |   |   |-- dashboards/
 |   |   `-- datasources/
 |   |-- prometheus/
-|   `-- clickhouse/
+|   `-- clickhouse/        # Phase 2
 |-- src/
 |   |-- producer/
 |   |   `-- csv_replay_producer.py
@@ -211,29 +246,54 @@ Validation metrics should include both machine-readable IDs and readable labels:
 ```
 
 ## Implementation Order
-1. Add Docker Compose for Kafka, Spark, ClickHouse, Prometheus, and Grafana.
+### Phase 1: Prometheus-Only MVP
+1. Add Docker Compose for Kafka, Spark, Prometheus, and Grafana.
 2. Implement CSV replay producer with checkpointed source-line progress.
 3. Create Kafka topics and publish a small fixture stream.
 4. Implement Spark schema parsing and bronze storage.
 5. Implement validation and quarantine routing.
 6. Implement silver event enrichment and label derivation.
-7. Implement ClickHouse aggregate tables and Spark sinks.
-8. Configure Prometheus exporters and Grafana datasources.
-9. Build Grafana dashboards.
+7. Export Spark business aggregates and quality metrics to Prometheus.
+8. Configure Prometheus scrape targets and Grafana Prometheus datasource.
+9. Build MVP Grafana dashboards from Prometheus metrics.
 10. Add fixture-based tests and a smoke test that replays a small CSV slice.
+
+### Phase 2: ClickHouse OLAP Extension
+1. Add ClickHouse to Docker Compose.
+2. Create ClickHouse aggregate tables for event, funnel, and revenue metrics.
+3. Add Spark sinks that write the same aggregate outputs to ClickHouse.
+4. Add Grafana ClickHouse datasource and equivalent SQL-backed panels.
+5. Replay the same benchmark workload used in Phase 1.
+6. Compare dashboard latency, query flexibility, write cost, resource usage, and operational complexity.
 
 ## Acceptance Checks
 - Producer can replay a small CSV fixture into Kafka.
 - Spark can parse and validate all fixture event types.
 - Invalid fixture rows land in quarantine with rule names.
-- ClickHouse aggregate tables update while replay is active.
-- Grafana shows business metrics from ClickHouse.
-- Grafana shows Kafka, Spark, producer, and data-quality metrics from
+- Phase 1 Prometheus metrics update while replay is active.
+- Grafana shows business, Kafka, Spark, producer, and data-quality metrics from
   Prometheus.
+- Phase 2 ClickHouse aggregate tables update while replay is active.
+- Phase 2 Grafana SQL panels show equivalent business metrics from ClickHouse.
 - Dashboard labels are readable without looking up raw category IDs or rule IDs.
+
+## Performance Comparison Plan
+| Metric | Phase 1 Baseline | Phase 2 Comparison | Why It Matters |
+| --- | --- | --- | --- |
+| End-to-end latency | event_time/replay timestamp to Grafana visibility via Prometheus | same workload through ClickHouse-backed panels | Measures real-time dashboard freshness. |
+| Spark throughput | processed rows/sec while exporting Prometheus metrics | processed rows/sec while also writing ClickHouse | Shows sink overhead. |
+| Dashboard query latency | Grafana panel render time from Prometheus | Grafana panel render time from ClickHouse | Shows user-facing responsiveness. |
+| Query flexibility | fixed metric labels and PromQL | SQL over aggregate tables | Shows whether OLAP adds useful analysis power. |
+| Resource usage | Kafka/Spark/Prometheus/Grafana CPU and memory | plus ClickHouse CPU, memory, disk, write latency | Shows operational cost. |
+| Operational complexity | number of services and recovery paths | added ClickHouse service and sink recovery | Shows maintenance tradeoff. |
+
+Use the same CSV slice, replay speed, Kafka partition count, Spark checkpoint
+state, and dashboard panels where possible so the comparison is fair. Keep Phase
+1 Prometheus labels intentionally bounded; otherwise Prometheus high-cardinality
+overhead would dominate the comparison instead of representing a sensible MVP.
 
 ## Open Decisions
 - Replay speed for local demos.
-- Whether to store validated event-level data in ClickHouse for drilldown.
+- Whether Phase 2 should store validated event-level data in ClickHouse for drilldown.
 - Whether to use Avro/Protobuf and schema registry after the JSON prototype.
 - Whether user IDs should be hashed before any dashboard drilldown.

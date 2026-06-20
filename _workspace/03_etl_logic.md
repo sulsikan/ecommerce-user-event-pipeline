@@ -40,13 +40,15 @@
    - Computes 1-minute traffic and revenue windows.
    - Computes 5-minute funnel windows.
    - Uses watermarking on `event_time`.
-   - Writes queryable aggregates to ClickHouse.
+   - Phase 1: exports dashboard-ready aggregate metrics to Prometheus.
+   - Phase 2: also writes queryable aggregate tables to ClickHouse.
 6. Metrics export
    - Emits Spark job, Kafka lag, producer progress, validation failure, and
      aggregation freshness metrics to Prometheus.
 7. Grafana
-   - Reads business aggregates from ClickHouse.
-   - Reads operational metrics from Prometheus.
+   - Phase 1: reads business, operational, and quality metrics from Prometheus.
+   - Phase 2: reads business aggregates from ClickHouse and operational/quality
+     metrics from Prometheus.
 
 ## Transformation Rules
 - `event_time`: parse as UTC timestamp.
@@ -78,7 +80,8 @@
   `(window_start, window_end, dimensions)` for aggregates.
 - Retryable failures:
   - transient Kafka unavailability
-  - transient ClickHouse write failure
+  - transient Prometheus metrics export failure
+  - transient ClickHouse write failure in Phase 2
   - Spark executor restart
 - Data-quality failures:
   - invalid timestamp
@@ -91,7 +94,10 @@
 - 42.4M rows fits a meaningful local streaming replay workload.
 - Start with 6 to 12 Kafka partitions for the raw topic.
 - Spark should process micro-batches with backpressure enabled.
-- ClickHouse is selected for aggregate query speed under high event volume.
+- Phase 1 keeps the serving layer simple by exposing pre-aggregated metrics to
+  Prometheus.
+- Phase 2 adds ClickHouse only if richer OLAP-style category, brand, and
+  time-window queries justify the added component.
 - Use separate Spark queries or clearly separated sinks for bronze, silver, and
   gold outputs so failures are easier to isolate.
 
@@ -105,9 +111,10 @@
   - rows processed per second
   - validation failure counts
   - aggregate freshness
-  - ClickHouse write latency
+  - Prometheus export success and scrape freshness
+  - ClickHouse write latency in Phase 2
 
 ## Open Questions
 - Exact replay speed for demos.
 - Whether to use one Spark application with multiple queries or separate apps.
-- Whether ClickHouse should store raw validated events or only aggregates.
+- Whether Phase 2 ClickHouse should store raw validated events or only aggregates.
