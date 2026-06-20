@@ -4,3 +4,18 @@
 # Local datasets
 data/*
 !data/README.md
+
+# Runtime outputs
+storage/*
+!storage/bronze/
+!storage/silver/
+!storage/quarantine/
+!storage/checkpoints/
+storage/bronze/*
+storage/silver/*
+storage/quarantine/*
+storage/checkpoints/*
+!storage/bronze/.gitkeep
+!storage/silver/.gitkeep
+!storage/quarantine/.gitkeep
+!storage/checkpoints/.gitkeep
