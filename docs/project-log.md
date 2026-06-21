@@ -136,3 +136,45 @@ Implement the Spark Structured Streaming bronze reader that consumes
 `ecommerce.events.raw.v1`, parses Kafka key/value metadata, and writes raw event
 records to the bronze storage path.
 
+## 2026-06-21 - Add Spark Bronze Kafka Reader
+
+### User Request
+Continue with the next planned implementation step after the checkpointed Kafka
+CSV replay producer, starting from step 2 because the old feature branch cleanup
+was already handled by the user.
+
+### Work Performed
+- Added `src/streaming/bronze_stream.py`, a Spark Structured Streaming job that
+  consumes raw ecommerce events from Kafka topic `ecommerce.events.raw.v1`.
+- Preserved raw Kafka payloads and metadata as bronze parquet columns:
+  `kafka_key`, `kafka_value`, `kafka_topic`, `kafka_partition`, `kafka_offset`,
+  `kafka_timestamp`, `kafka_timestamp_type`, and `ingest_time`.
+- Added configurable runtime options for Kafka bootstrap server, topic, output
+  path, checkpoint path, starting offsets, query name, and trigger mode.
+- Used `available-now` as the default trigger for local smoke tests, with
+  `processing-time` available for long-running streaming mode.
+- Recreated the Spark containers after discovering the already-running
+  containers did not see the newly added bind-mounted source file.
+
+### Files Changed
+- `src/streaming/bronze_stream.py`
+- `docs/project-log.md`
+
+### Verification
+- Compiled `src/streaming/bronze_stream.py` with Python `compile()` without
+  writing `__pycache__`.
+- Ran `spark-submit` in the Spark master container with the Spark Kafka
+  connector package.
+- Confirmed the job completed successfully with `--trigger available-now` and
+  `--starting-offsets earliest`.
+- Read the generated bronze parquet output with a temporary Spark inspection job
+  and confirmed `count=7`.
+- Confirmed the bronze output contains the expected Kafka topic, key, partition,
+  offset, and raw JSON payload columns.
+- Verified generated parquet and checkpoint files under `storage/` are ignored
+  by Git.
+
+### Next Step
+Commit and push `feature/spark-bronze-reader`, then start the silver parsing and
+data validation step that converts `kafka_value` JSON into typed event columns
+and validation outcomes.
