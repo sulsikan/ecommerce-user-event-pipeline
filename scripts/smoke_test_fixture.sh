@@ -10,6 +10,8 @@ QUARANTINE_PATH="storage/smoke/quarantine/events"
 BRONZE_CHECKPOINT="storage/smoke/checkpoints/bronze_events"
 SILVER_CHECKPOINT="storage/smoke/checkpoints/silver_events"
 QUARANTINE_CHECKPOINT="storage/smoke/checkpoints/quarantine_events"
+GOLD_SILVER_CHECKPOINT="storage/smoke/checkpoints/gold_silver_metrics"
+GOLD_QUARANTINE_CHECKPOINT="storage/smoke/checkpoints/gold_quarantine_metrics"
 LOG_DIR="storage/smoke/logs"
 
 SPARK_BRONZE_PATH="/opt/spark/storage/smoke/bronze/events"
@@ -18,12 +20,19 @@ SPARK_QUARANTINE_PATH="/opt/spark/storage/smoke/quarantine/events"
 SPARK_BRONZE_CHECKPOINT="/opt/spark/storage/smoke/checkpoints/bronze_events"
 SPARK_SILVER_CHECKPOINT="/opt/spark/storage/smoke/checkpoints/silver_events"
 SPARK_QUARANTINE_CHECKPOINT="/opt/spark/storage/smoke/checkpoints/quarantine_events"
+SPARK_GOLD_SILVER_CHECKPOINT="/opt/spark/storage/smoke/checkpoints/gold_silver_metrics"
+SPARK_GOLD_QUARANTINE_CHECKPOINT="/opt/spark/storage/smoke/checkpoints/gold_quarantine_metrics"
 
 KAFKA_CONTAINER="ecommerce-kafka"
 SPARK_CONTAINER="ecommerce-spark-master"
 KAFKA_BOOTSTRAP="localhost:9092"
 SPARK_MASTER="spark://spark-master:7077"
 KAFKA_PACKAGE="org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5"
+PUSHGATEWAY_URL="http://localhost:9091"
+PROMETHEUS_URL="http://localhost:9090"
+SPARK_PUSHGATEWAY_URL="http://pushgateway:9091"
+BUSINESS_JOB="ecommerce_gold_business"
+QUALITY_JOB="ecommerce_gold_quality"
 
 log() {
   printf '[smoke] %s\n' "$*"
@@ -47,6 +56,68 @@ wait_for_kafka() {
   done
   printf 'Kafka did not become ready in time.\n' >&2
   exit 1
+}
+
+wait_for_pushgateway() {
+  local attempt
+  for attempt in {1..30}; do
+    if python3 - <<PY >/dev/null 2>&1
+import urllib.request
+urllib.request.urlopen('${PUSHGATEWAY_URL}/-/healthy', timeout=2).read()
+PY
+    then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'Pushgateway did not become ready in time.\n' >&2
+  exit 1
+}
+
+wait_for_prometheus() {
+  local attempt
+  for attempt in {1..30}; do
+    if python3 - <<PY >/dev/null 2>&1
+import urllib.request
+urllib.request.urlopen('${PROMETHEUS_URL}/-/ready', timeout=2).read()
+PY
+    then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'Prometheus did not become ready in time.\n' >&2
+  exit 1
+}
+
+reload_prometheus_config() {
+  log "Reloading Prometheus config"
+  python3 - <<PY
+import urllib.request
+request = urllib.request.Request('${PROMETHEUS_URL}/-/reload', method='POST')
+urllib.request.urlopen(request, timeout=5).read()
+PY
+}
+
+reset_pushgateway_metrics() {
+  log "Resetting Pushgateway smoke metrics"
+  python3 - <<PY
+import urllib.error
+import urllib.request
+
+for job in ('${BUSINESS_JOB}', '${QUALITY_JOB}'):
+    request = urllib.request.Request(
+        '${PUSHGATEWAY_URL}/metrics/job/' + job,
+        method='DELETE',
+    )
+    try:
+        urllib.request.urlopen(request, timeout=5).read()
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (202, 404):
+            raise
+    except urllib.error.URLError:
+        raise
+PY
 }
 
 reset_smoke_topic() {
@@ -78,6 +149,8 @@ reset_smoke_storage() {
     "$BRONZE_CHECKPOINT" \
     "$SILVER_CHECKPOINT" \
     "$QUARANTINE_CHECKPOINT" \
+    "$GOLD_SILVER_CHECKPOINT" \
+    "$GOLD_QUARANTINE_CHECKPOINT" \
     "$LOG_DIR"
   mkdir -p "$LOG_DIR"
 }
@@ -119,6 +192,22 @@ run_silver() {
     --silver-checkpoint-path "$SPARK_SILVER_CHECKPOINT" \
     --quarantine-checkpoint-path "$SPARK_QUARANTINE_CHECKPOINT" \
     --trigger available-now >"$LOG_DIR/silver_stream.log" 2>&1
+}
+
+run_gold() {
+  log "Running gold metrics stream"
+  docker exec "$SPARK_CONTAINER" /opt/spark/bin/spark-submit \
+    --master "$SPARK_MASTER" \
+    --conf spark.ui.showConsoleProgress=false \
+    /opt/spark/app/streaming/gold_metrics_stream.py \
+    --silver-input-path "$SPARK_SILVER_PATH" \
+    --quarantine-input-path "$SPARK_QUARANTINE_PATH" \
+    --silver-checkpoint-path "$SPARK_GOLD_SILVER_CHECKPOINT" \
+    --quarantine-checkpoint-path "$SPARK_GOLD_QUARANTINE_CHECKPOINT" \
+    --pushgateway-url "$SPARK_PUSHGATEWAY_URL" \
+    --business-job "$BUSINESS_JOB" \
+    --quality-job "$QUALITY_JOB" \
+    --trigger available-now >"$LOG_DIR/gold_metrics_stream.log" 2>&1
 }
 
 inspect_outputs() {
@@ -165,21 +254,99 @@ PY
   printf '%s\n' "$output"
 }
 
+inspect_pushgateway_metrics() {
+  log "Inspecting Pushgateway metrics"
+  python3 - <<PY
+import re
+import urllib.request
+
+metrics = urllib.request.urlopen('${PUSHGATEWAY_URL}/metrics', timeout=5).read().decode()
+
+checks = {
+    'events_view': r'ecommerce_events_total\{[^}]*event_type="view"[^}]*\}\s+4(?:\.0)?',
+    'events_cart': r'ecommerce_events_total\{[^}]*event_type="cart"[^}]*\}\s+1(?:\.0)?',
+    'events_purchase': r'ecommerce_events_total\{[^}]*event_type="purchase"[^}]*\}\s+1(?:\.0)?',
+    'purchase_total': r'ecommerce_purchase_total(?:\{[^}]*\})?\s+1(?:\.0)?',
+    'revenue_total': r'ecommerce_revenue_total(?:\{[^}]*\})?\s+1081\.98',
+    'quality_rule': (
+        r'dq_rule_failures_total\{[^}]*rule_id="DQ_EVENT_TYPE_DOMAIN"'
+        r'[^}]*\}\s+1(?:\.0)?'
+    ),
+}
+missing = [name for name, pattern in checks.items() if not re.search(pattern, metrics)]
+if missing:
+    raise AssertionError('missing expected Pushgateway metrics: ' + ', '.join(missing))
+
+print('metric_events_view=4')
+print('metric_events_cart=1')
+print('metric_events_purchase=1')
+print('metric_purchase_total=1')
+print('metric_revenue_total=1081.98')
+print('metric_quality_rule=DQ_EVENT_TYPE_DOMAIN:1')
+PY
+}
+
+inspect_prometheus_metrics() {
+  log "Inspecting Prometheus scrape result"
+  python3 - <<PY
+import json
+import time
+import urllib.parse
+import urllib.request
+
+for _ in range(20):
+    targets = json.loads(
+        urllib.request.urlopen('${PROMETHEUS_URL}/api/v1/targets', timeout=5).read()
+    )
+    pushgateway_targets = [
+        target
+        for target in targets['data']['activeTargets']
+        if target.get('labels', {}).get('job') == 'pushgateway'
+    ]
+    query = urllib.parse.urlencode({'query': 'ecommerce_purchase_total'})
+    result = json.loads(
+        urllib.request.urlopen(
+            f'${PROMETHEUS_URL}/api/v1/query?{query}',
+            timeout=5,
+        ).read()
+    )
+    if (
+        pushgateway_targets
+        and pushgateway_targets[0].get('health') == 'up'
+        and result['data']['result']
+    ):
+        print('prometheus_pushgateway_target=up')
+        print('prometheus_metric_ecommerce_purchase_total=present')
+        break
+    time.sleep(2)
+else:
+    raise AssertionError('Prometheus did not scrape Pushgateway metrics in time')
+PY
+}
+
 main() {
   require_file "$FIXTURE"
   require_file "src/producer/csv_replay_producer.py"
   require_file "src/streaming/bronze_stream.py"
   require_file "src/streaming/silver_stream.py"
+  require_file "src/streaming/gold_metrics_stream.py"
 
   log "Starting local Compose stack"
   docker compose up -d >/dev/null
   wait_for_kafka
+  wait_for_pushgateway
+  wait_for_prometheus
+  reload_prometheus_config
+  reset_pushgateway_metrics
   reset_smoke_topic
   reset_smoke_storage
   publish_fixture
   run_bronze
   run_silver
   inspect_outputs
+  run_gold
+  inspect_pushgateway_metrics
+  inspect_prometheus_metrics
   log "smoke_test=PASS"
   log "Detailed logs: ${LOG_DIR}"
 }
