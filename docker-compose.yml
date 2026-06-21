@@ -72,6 +72,12 @@ services:
       - ./storage:/opt/spark/storage
       - ./configs/spark/metrics.properties:/opt/spark/conf/metrics.properties:ro
 
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    container_name: ecommerce-pushgateway
+    ports:
+      - "9091:9091"
+
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: ecommerce-prometheus
@@ -87,6 +93,7 @@ services:
     depends_on:
       - spark-master
       - spark-worker
+      - pushgateway
 
   grafana:
     image: grafana/grafana:11.1.0

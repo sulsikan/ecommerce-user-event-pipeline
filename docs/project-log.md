@@ -264,3 +264,54 @@ and quarantine flow before moving on to gold aggregation and metrics export.
 ### Next Step
 Commit and push `feature/fixture-smoke-test`, merge it into `develop`, and then
 start gold aggregation plus Prometheus metrics export for the Phase 1 dashboard.
+
+## 2026-06-21 - Add Gold Metrics Export to Prometheus
+
+### User Request
+Proceed with the gold aggregation and Prometheus metrics export step for the
+Phase 1 dashboard path.
+
+### Work Performed
+- Created `feature/gold-prometheus-metrics` from `develop`.
+- Added a Pushgateway service to `docker-compose.yml` for local Spark-to-
+  Prometheus metric handoff.
+- Updated `configs/prometheus/prometheus.yml` so Prometheus scrapes
+  `pushgateway:9091` with `honor_labels: true`.
+- Added `src/streaming/gold_metrics_stream.py`, a Spark Structured Streaming
+  job that reads silver and quarantine parquet outputs, aggregates business and
+  data-quality metrics, and pushes Prometheus text-format metrics to
+  Pushgateway.
+- Exported fixture-verifiable business metrics for event type counts, purchase
+  count, revenue, active users, active sessions, category purchases, brand
+  revenue, and aggregate freshness.
+- Exported quality metrics for quarantined records and DQ rule failures.
+- Extended `scripts/smoke_test_fixture.sh` so the smoke test now covers producer,
+  Kafka, bronze, silver, quarantine, gold metrics, Pushgateway, and Prometheus
+  scrape verification.
+- Added Prometheus reload handling to the smoke test so local config changes are
+  picked up without manually restarting Prometheus.
+
+### Files Changed
+- `docker-compose.yml`
+- `configs/prometheus/prometheus.yml`
+- `src/streaming/gold_metrics_stream.py`
+- `scripts/smoke_test_fixture.sh`
+- `docs/project-log.md`
+
+### Verification
+- Ran `docker compose config` successfully.
+- Compiled `src/streaming/gold_metrics_stream.py` with Python `compile()` without
+  writing `__pycache__`.
+- Ran `bash -n scripts/smoke_test_fixture.sh` successfully.
+- Ran `./scripts/smoke_test_fixture.sh` successfully for the full fixture flow.
+- Confirmed the smoke test output reports bronze, silver, and quarantine counts:
+  `bronze_count=7`, `silver_count=6`, and `quarantine_count=1`.
+- Confirmed Pushgateway metrics include view/cart/purchase counts, purchase
+  total, revenue total, and `DQ_EVENT_TYPE_DOMAIN` quality failure count.
+- Confirmed Prometheus reports the Pushgateway target as `up` and can query
+  `ecommerce_purchase_total`.
+- Verified generated `storage/smoke/` runtime outputs remain ignored by Git.
+
+### Next Step
+Build the initial Grafana dashboard provisioning for Phase 1 Prometheus metrics,
+then run the fixture smoke test to confirm dashboard source metrics are present.

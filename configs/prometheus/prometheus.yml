@@ -25,3 +25,9 @@ scrape_configs:
     static_configs:
       - targets:
           - spark-master:8080
+
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets:
+          - pushgateway:9091
