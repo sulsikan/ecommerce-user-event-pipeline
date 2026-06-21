@@ -222,3 +222,45 @@ planned Silver parsing and validation phase.
 ### Next Step
 Add fixture-based automated tests or a repeatable smoke-test script, then proceed
 to gold aggregation and Prometheus metrics export for the Phase 1 dashboard.
+
+## 2026-06-21 - Add Fixture Smoke Test Script
+
+### User Request
+Add a repeatable smoke test script for the fixture-based Kafka, bronze, silver,
+and quarantine flow before moving on to gold aggregation and metrics export.
+
+### Work Performed
+- Created `feature/fixture-smoke-test` from `develop`.
+- Added `scripts/smoke_test_fixture.sh` as an executable end-to-end smoke test.
+- The script starts the local Docker Compose stack, waits for Kafka readiness,
+  resets only the smoke Kafka topic `ecommerce.events.smoke.v1`, and resets only
+  runtime files under `storage/smoke/`.
+- The script publishes `tests/fixtures/sample_events.csv` through the existing
+  CSV replay producer.
+- The script runs the bronze Spark stream against the smoke topic and writes to
+  smoke-only bronze storage.
+- The script runs the silver Spark stream against smoke bronze output and writes
+  to smoke-only silver and quarantine storage.
+- The script inspects the generated parquet outputs with Spark and asserts the
+  expected fixture counts and quarantine rule counts.
+- Detailed Spark logs are written under `storage/smoke/logs/` while the terminal
+  output stays focused on the final counts and pass/fail result.
+
+### Files Changed
+- `scripts/smoke_test_fixture.sh`
+- `docs/project-log.md`
+
+### Verification
+- Ran `bash -n scripts/smoke_test_fixture.sh` successfully.
+- Ran `./scripts/smoke_test_fixture.sh` successfully after initial creation.
+- Cleaned up verbose Spark output by redirecting detailed logs to
+  `storage/smoke/logs/`.
+- Re-ran `./scripts/smoke_test_fixture.sh` successfully after the logging
+  cleanup.
+- Confirmed the smoke test output reports `bronze_count=7`, `silver_count=6`,
+  `quarantine_count=1`, and `quarantine_rules=DQ_EVENT_TYPE_DOMAIN:1`.
+- Verified `storage/smoke/` runtime outputs are ignored by Git.
+
+### Next Step
+Commit and push `feature/fixture-smoke-test`, merge it into `develop`, and then
+start gold aggregation plus Prometheus metrics export for the Phase 1 dashboard.
