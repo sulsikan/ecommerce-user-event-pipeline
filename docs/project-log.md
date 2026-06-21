@@ -178,3 +178,47 @@ was already handled by the user.
 Commit and push `feature/spark-bronze-reader`, then start the silver parsing and
 data validation step that converts `kafka_value` JSON into typed event columns
 and validation outcomes.
+
+## 2026-06-21 - Add Silver Event Parser and Quarantine Routing
+
+### User Request
+Continue with the next implementation step after bronze storage, following the
+planned Silver parsing and validation phase.
+
+### Work Performed
+- Created `feature/silver-event-parser` from `develop`.
+- Added `src/streaming/silver_stream.py`, a Spark Structured Streaming job that
+  reads bronze parquet records and parses `kafka_value` JSON into canonical event
+  columns.
+- Normalized blank strings to null and derived typed fields for event time,
+  event type, product ID, category ID, price, user ID, and user session.
+- Derived `category_l1`, `category_l2`, `category_l3`, `category_label`,
+  `brand_label`, `event_id`, and `event_date`.
+- Added critical validation routing for timestamp parsing, event type domain,
+  required product/user/session fields, and invalid prices.
+- Wrote valid records to `storage/silver/events` and invalid records to
+  `storage/quarantine/events` with rule ID, rule name, severity, raw payload,
+  source metadata, and Kafka metadata.
+- Started Docker Desktop and the local Compose stack to run Spark verification.
+
+### Files Changed
+- `src/streaming/silver_stream.py`
+- `docs/project-log.md`
+
+### Verification
+- Compiled `src/streaming/silver_stream.py` with Python `compile()` without
+  writing `__pycache__`.
+- Ran `spark-submit` in the Spark master container with `--trigger available-now`.
+- Read the generated silver and quarantine parquet output with a temporary Spark
+  inspection job.
+- Confirmed the fixture produced `silver_count=6` and `quarantine_count=1`.
+- Confirmed the quarantined fixture record failed with
+  `DQ_EVENT_TYPE_DOMAIN:1` for unsupported event type `remove_from_cart`.
+- Confirmed missing category and brand values are retained in silver with
+  `unknown` labels instead of being quarantined.
+- Verified generated silver, quarantine, and checkpoint files under `storage/`
+  are ignored by Git.
+
+### Next Step
+Add fixture-based automated tests or a repeatable smoke-test script, then proceed
+to gold aggregation and Prometheus metrics export for the Phase 1 dashboard.
