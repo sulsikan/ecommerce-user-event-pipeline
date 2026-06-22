@@ -315,3 +315,47 @@ Phase 1 dashboard path.
 ### Next Step
 Build the initial Grafana dashboard provisioning for Phase 1 Prometheus metrics,
 then run the fixture smoke test to confirm dashboard source metrics are present.
+
+## 2026-06-22 - Add Grafana Phase 1 Dashboard Provisioning
+
+### User Request
+Proceed with the Grafana dashboard provisioning work according to the planned
+Phase 1 dashboard step.
+
+### Work Performed
+- Created `feature/grafana-phase1-dashboard` from `develop`.
+- Added a stable Grafana datasource UID `prometheus` to the existing Prometheus
+  datasource provisioning file.
+- Added `configs/grafana/dashboards/dashboard.yml` so Grafana provisions local
+  dashboard JSON files under the Ecommerce Pipeline folder.
+- Added `configs/grafana/dashboards/ecommerce-phase1-overview.json`, a Phase 1
+  overview dashboard for ecommerce event metrics, purchases, revenue, active
+  users, data-quality failures, and Pushgateway scrape health.
+- Extended `scripts/smoke_test_fixture.sh` so the smoke test reloads Grafana
+  provisioning and verifies the Prometheus datasource UID and dashboard UID via
+  the Grafana API.
+
+### Files Changed
+- `configs/grafana/datasources/prometheus.yml`
+- `configs/grafana/dashboards/dashboard.yml`
+- `configs/grafana/dashboards/ecommerce-phase1-overview.json`
+- `scripts/smoke_test_fixture.sh`
+- `docs/project-log.md`
+
+### Verification
+- Validated `configs/grafana/dashboards/ecommerce-phase1-overview.json` with
+  `python3 -m json.tool`.
+- Ran `docker compose config` successfully.
+- Ran `bash -n scripts/smoke_test_fixture.sh` successfully.
+- Started Docker Desktop because the Docker daemon was initially unavailable.
+- Ran `./scripts/smoke_test_fixture.sh` successfully for the full fixture flow.
+- Confirmed the smoke test still reports `bronze_count=7`, `silver_count=6`, and
+  `quarantine_count=1`.
+- Confirmed Pushgateway and Prometheus metric checks still pass.
+- Confirmed Grafana API reports `grafana_datasource_uid=prometheus` and
+  `grafana_dashboard_uid=ecommerce-phase1-overview`.
+
+### Next Step
+Commit and push `feature/grafana-phase1-dashboard`, merge it into `develop`, and
+then review the Phase 1 MVP completeness before deciding whether to improve the
+Grafana dashboard panels or begin the Phase 2 ClickHouse comparison path.
