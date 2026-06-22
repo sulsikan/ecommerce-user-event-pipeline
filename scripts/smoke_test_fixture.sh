@@ -30,6 +30,7 @@ SPARK_MASTER="spark://spark-master:7077"
 KAFKA_PACKAGE="org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5"
 PUSHGATEWAY_URL="http://localhost:9091"
 PROMETHEUS_URL="http://localhost:9090"
+GRAFANA_URL="http://localhost:3000"
 SPARK_PUSHGATEWAY_URL="http://pushgateway:9091"
 BUSINESS_JOB="ecommerce_gold_business"
 QUALITY_JOB="ecommerce_gold_quality"
@@ -90,12 +91,51 @@ PY
   exit 1
 }
 
+wait_for_grafana() {
+  local attempt
+  for attempt in {1..30}; do
+    if python3 - <<PY >/dev/null 2>&1
+import urllib.request
+urllib.request.urlopen('${GRAFANA_URL}/api/health', timeout=2).read()
+PY
+    then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'Grafana did not become ready in time.\n' >&2
+  exit 1
+}
+
 reload_prometheus_config() {
   log "Reloading Prometheus config"
   python3 - <<PY
 import urllib.request
 request = urllib.request.Request('${PROMETHEUS_URL}/-/reload', method='POST')
 urllib.request.urlopen(request, timeout=5).read()
+PY
+}
+
+reload_grafana_provisioning() {
+  log "Reloading Grafana provisioning"
+  python3 - <<PY
+import base64
+import urllib.error
+import urllib.request
+
+auth = base64.b64encode(b'admin:admin').decode()
+for path in (
+    '/api/admin/provisioning/datasources/reload',
+    '/api/admin/provisioning/dashboards/reload',
+):
+    request = urllib.request.Request('${GRAFANA_URL}' + path, method='POST')
+    request.add_header('Authorization', 'Basic ' + auth)
+    try:
+        urllib.request.urlopen(request, timeout=10).read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            continue
+        raise
 PY
 }
 
@@ -324,6 +364,38 @@ else:
 PY
 }
 
+inspect_grafana_provisioning() {
+  log "Inspecting Grafana provisioning"
+  python3 - <<PY
+import base64
+import json
+import time
+import urllib.request
+
+auth = base64.b64encode(b'admin:admin').decode()
+
+def get(path):
+    request = urllib.request.Request('${GRAFANA_URL}' + path)
+    request.add_header('Authorization', 'Basic ' + auth)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode())
+
+for _ in range(30):
+    datasource = get('/api/datasources/uid/prometheus')
+    dashboard = get('/api/dashboards/uid/ecommerce-phase1-overview')
+    if (
+        datasource.get('name') == 'Prometheus'
+        and dashboard.get('dashboard', {}).get('title') == 'Ecommerce Phase 1 Overview'
+    ):
+        print('grafana_datasource_uid=prometheus')
+        print('grafana_dashboard_uid=ecommerce-phase1-overview')
+        break
+    time.sleep(2)
+else:
+    raise AssertionError('Grafana provisioning was not visible in time')
+PY
+}
+
 main() {
   require_file "$FIXTURE"
   require_file "src/producer/csv_replay_producer.py"
@@ -336,7 +408,9 @@ main() {
   wait_for_kafka
   wait_for_pushgateway
   wait_for_prometheus
+  wait_for_grafana
   reload_prometheus_config
+  reload_grafana_provisioning
   reset_pushgateway_metrics
   reset_smoke_topic
   reset_smoke_storage
@@ -347,6 +421,7 @@ main() {
   run_gold
   inspect_pushgateway_metrics
   inspect_prometheus_metrics
+  inspect_grafana_provisioning
   log "smoke_test=PASS"
   log "Detailed logs: ${LOG_DIR}"
 }
