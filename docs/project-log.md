@@ -359,3 +359,163 @@ Phase 1 dashboard step.
 Commit and push `feature/grafana-phase1-dashboard`, merge it into `develop`, and
 then review the Phase 1 MVP completeness before deciding whether to improve the
 Grafana dashboard panels or begin the Phase 2 ClickHouse comparison path.
+
+## 2026-06-22 - Add Phase 1 MVP Readiness Check
+
+### User Request
+Implement the Phase 1 MVP completeness check after the Grafana dashboard
+provisioning work was merged into `develop`.
+
+### Work Performed
+- Created `feature/phase1-mvp-readiness` from `develop`.
+- Added `scripts/check_phase1_mvp_readiness.sh`, an executable readiness check
+  that validates required project files, static configuration, ignore rules,
+  Python source compilation, the full fixture smoke test, and runtime
+  Prometheus/Grafana APIs.
+- Reused `scripts/smoke_test_fixture.sh` as the end-to-end runtime verification
+  for Kafka, Spark bronze, Spark silver/quarantine, gold metrics, Pushgateway,
+  Prometheus, and Grafana.
+- Added `docs/phase1-mvp-readiness.md`, a generated readiness report containing
+  verified scope, passing checks, smoke-test evidence, remaining Phase 1
+  improvements, and Phase 2 entry criteria.
+- Fixed the readiness smoke log path so it is not deleted by the smoke test's
+  `storage/smoke/` reset.
+- Fixed report generation to safely print Markdown bullet lines in Bash.
+
+### Files Changed
+- `scripts/check_phase1_mvp_readiness.sh`
+- `docs/phase1-mvp-readiness.md`
+- `docs/project-log.md`
+
+### Verification
+- Ran `bash -n scripts/check_phase1_mvp_readiness.sh` successfully.
+- Ran `./scripts/check_phase1_mvp_readiness.sh` successfully.
+- Confirmed the readiness check runs the full fixture smoke test and reports
+  `smoke_test=PASS`.
+- Confirmed the readiness check verifies Prometheus can query
+  `ecommerce_purchase_total`.
+- Confirmed the readiness check verifies Grafana dashboard UID
+  `ecommerce-phase1-overview`.
+- Verified readiness runtime logs under `storage/readiness/` remain ignored by
+  Git.
+
+### Next Step
+Commit and push `feature/phase1-mvp-readiness`, merge it into `develop`, and
+then decide whether to polish the Phase 1 Grafana dashboard or begin the Phase 2
+ClickHouse comparison path.
+
+## 2026-06-22 - Run Initial Real CSV Streaming Test
+
+### User Request
+Start testing with the real Kaggle ecommerce CSV data.
+
+### Work Performed
+- Kept the test isolated from fixture/runtime outputs by using the Kafka topic
+  `ecommerce.events.realtest.v1` and the `storage/realtest/` runtime path.
+- Published the first 1,000 rows from `data/2019-Oct.csv` to Kafka with
+  `src/producer/csv_replay_producer.py`.
+- Ran the Spark Structured Streaming bronze job from Kafka to parquet.
+- Ran the silver parsing and validation job against the bronze output.
+- Ran the gold aggregation job and pushed metrics to Pushgateway under
+  `ecommerce_realtest_business` and `ecommerce_realtest_quality`.
+- Queried Prometheus to confirm it scraped the real-test metrics.
+
+### Verification
+- Confirmed the producer reported `published_events=1000`.
+- Confirmed Spark output counts: `bronze_count=1000`, `silver_count=1000`, and
+  `quarantine_count=0`.
+- Confirmed event distribution: `view=987`, `cart=3`, and `purchase=10`.
+- Confirmed purchase revenue aggregation: `revenue=2387.84`.
+- Confirmed Prometheus query returned `ecommerce_purchase_total=10`.
+- Confirmed Prometheus query returned `ecommerce_gold_last_batch_records=1000`.
+
+### Next Step
+Decide whether to scale the real-data replay to a larger sample size or update
+the Grafana dashboard/job filters so the real-test metrics are visible in the
+existing dashboard panels.
+
+## 2026-06-22 - Add Grafana Metric Source Selector
+
+### User Request
+Add a Grafana job selector so the dashboard can switch between fixture metrics
+and real-test metrics.
+
+### Work Performed
+- Added a `metric_source` custom variable to the Phase 1 Grafana dashboard.
+- Configured the variable with `fixture` -> `gold` and `realtest` -> `realtest`.
+- Updated business metric panels to query `ecommerce_${metric_source}_business`.
+- Updated quality metric panels to query `ecommerce_${metric_source}_quality`.
+- Extended the smoke test to verify that Grafana provisions the metric source
+  variable and that dashboard panel queries reference it.
+- Regenerated the Phase 1 readiness report so the new Grafana variable evidence
+  is included.
+
+### Files Changed
+- `configs/grafana/dashboards/ecommerce-phase1-overview.json`
+- `scripts/smoke_test_fixture.sh`
+- `docs/phase1-mvp-readiness.md`
+- `docs/project-log.md`
+
+### Verification
+- Ran `python3 -m json.tool configs/grafana/dashboards/ecommerce-phase1-overview.json` successfully.
+- Ran `bash -n scripts/smoke_test_fixture.sh` successfully.
+- Reloaded Grafana provisioning and confirmed the dashboard API reports
+  `grafana_metric_source_variable=fixture,realtest`.
+- Ran `./scripts/smoke_test_fixture.sh` successfully and confirmed
+  `smoke_test=PASS`.
+- Ran `./scripts/check_phase1_mvp_readiness.sh` successfully and confirmed
+  `phase1_mvp_readiness=PASS`.
+
+### Next Step
+Open Grafana at `http://localhost:3000`, use the Metric Source dropdown, and
+compare the fixture baseline with the 1,000-row real-test metrics before scaling
+the replay size.
+
+## 2026-06-22 - Stabilize Live Replay Runner
+
+### User Request
+Stabilize `scripts/run_live_replay.sh` so the pipeline can be observed as a slow
+live stream in Grafana.
+
+### Work Performed
+- Added `scripts/run_live_replay.sh` as a live replay runner that starts Bronze,
+  Silver, and Gold Spark Structured Streaming jobs in `processing-time` mode.
+- Added producer throttling support through `LIVE_EVENTS_PER_SECOND` so the CSV
+  replay can flow gradually instead of all at once.
+- Increased the Spark worker capacity from 2 cores / 2 GB to 4 cores / 3 GB for
+  three concurrent lightweight streaming jobs.
+- Limited each live Spark application to 1 core and 512 MB executor/driver
+  memory to avoid one job monopolizing the worker.
+- Strengthened cleanup so Spark app IDs, Spark driver processes, and worker
+  executors are stopped after a finite live smoke run.
+- Fixed `gold_metrics_stream.py` Silver input schema ordering so partitioned
+  `event_date` data is read correctly and `event_type` metrics remain
+  `view/cart/purchase` instead of being shifted into product IDs.
+- Updated the Phase 1 readiness check to include the live replay runner.
+
+### Files Changed
+- `.gitignore`
+- `docker-compose.yml`
+- `src/streaming/gold_metrics_stream.py`
+- `scripts/run_live_replay.sh`
+- `scripts/check_phase1_mvp_readiness.sh`
+- `docs/phase1-mvp-readiness.md`
+- `docs/project-log.md`
+
+### Verification
+- Ran `bash -n scripts/run_live_replay.sh` successfully.
+- Ran `python3 -m py_compile src/streaming/gold_metrics_stream.py` successfully.
+- Ran `docker compose config` successfully.
+- Ran an isolated live smoke check with 30 real CSV events at 5 events/sec.
+- Confirmed live smoke metrics included
+  `ecommerce_events_total{event_type="view"}=30`.
+- Confirmed live smoke cleanup left no Spark driver or executor processes.
+- Ran `./scripts/smoke_test_fixture.sh` successfully and confirmed
+  `smoke_test=PASS`.
+- Ran `./scripts/check_phase1_mvp_readiness.sh` successfully and confirmed
+  `phase1_mvp_readiness=PASS`.
+
+### Next Step
+Use `scripts/run_live_replay.sh` with `Metric Source=realtest` in Grafana for a
+longer observation run, then decide whether to tune panel refresh intervals or
+start Phase 2 ClickHouse comparison work.

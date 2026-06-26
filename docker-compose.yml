@@ -62,9 +62,9 @@ services:
       - --webui-port
       - "8081"
       - --cores
-      - "2"
+      - "4"
       - --memory
-      - 2g
+      - 3g
     ports:
       - "8081:8081"
     volumes:

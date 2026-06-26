@@ -27,7 +27,6 @@ SILVER_SCHEMA = T.StructType(
     [
         T.StructField("event_id", T.StringType(), False),
         T.StructField("event_time", T.TimestampType(), False),
-        T.StructField("event_date", T.DateType(), False),
         T.StructField("ingest_time", T.TimestampType(), False),
         T.StructField("event_type", T.StringType(), False),
         T.StructField("product_id", T.LongType(), False),
@@ -52,6 +51,7 @@ SILVER_SCHEMA = T.StructType(
         T.StructField("kafka_offset", T.LongType(), False),
         T.StructField("kafka_timestamp", T.TimestampType(), True),
         T.StructField("kafka_timestamp_type", T.IntegerType(), True),
+        T.StructField("event_date", T.DateType(), False),
     ]
 )
 
