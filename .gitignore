@@ -19,3 +19,6 @@ storage/checkpoints/*
 !storage/silver/.gitkeep
 !storage/quarantine/.gitkeep
 !storage/checkpoints/.gitkeep
+# Python
+__pycache__/
+*.py[cod]

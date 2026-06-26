@@ -383,12 +383,36 @@ def get(path):
 for _ in range(30):
     datasource = get('/api/datasources/uid/prometheus')
     dashboard = get('/api/dashboards/uid/ecommerce-phase1-overview')
+    dashboard_json = dashboard.get('dashboard', {})
+    variables = {
+        variable.get('name'): variable
+        for variable in dashboard_json.get('templating', {}).get('list', [])
+    }
+    metric_source = variables.get('metric_source', {})
+    metric_options = {
+        option.get('text'): option.get('value')
+        for option in metric_source.get('options', [])
+    }
+    target_exprs = [
+        target.get('expr', '')
+        for panel in dashboard_json.get('panels', [])
+        for target in panel.get('targets', [])
+    ]
+    dashboard_uses_metric_source = any(
+        ('$' + '{metric_source}') in expr
+        for expr in target_exprs
+    )
     if (
         datasource.get('name') == 'Prometheus'
-        and dashboard.get('dashboard', {}).get('title') == 'Ecommerce Phase 1 Overview'
+        and dashboard_json.get('title') == 'Ecommerce Phase 1 Overview'
+        and metric_source.get('type') == 'custom'
+        and metric_options == {'fixture': 'gold', 'realtest': 'realtest'}
+        and dashboard_uses_metric_source
     ):
         print('grafana_datasource_uid=prometheus')
         print('grafana_dashboard_uid=ecommerce-phase1-overview')
+        print('grafana_metric_source_variable=fixture,realtest')
+        print('grafana_metric_source_queries=present')
         break
     time.sleep(2)
 else:

@@ -30,7 +30,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_purchase_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_purchase_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -94,7 +94,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_revenue_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_revenue_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -158,7 +158,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_active_users_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_active_users_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -222,7 +222,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(dq_rule_failures_total{job=\"ecommerce_gold_quality\"})",
+          "expr": "sum(dq_rule_failures_total{job=\"ecommerce_${metric_source}_quality\"})",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -286,7 +286,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_events_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_events_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": false,
           "range": true,
           "refId": "A",
@@ -332,7 +332,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_revenue_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_revenue_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": false,
           "range": true,
           "refId": "A",
@@ -378,7 +378,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_purchase_by_category_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_purchase_by_category_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": true,
           "range": false,
           "refId": "A",
@@ -429,7 +429,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "ecommerce_revenue_by_brand_total{job=\"ecommerce_gold_business\"}",
+          "expr": "ecommerce_revenue_by_brand_total{job=\"ecommerce_${metric_source}_business\"}",
           "instant": true,
           "range": false,
           "refId": "A",
@@ -480,7 +480,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "dq_rule_failures_total{job=\"ecommerce_gold_quality\"}",
+          "expr": "dq_rule_failures_total{job=\"ecommerce_${metric_source}_quality\"}",
           "instant": false,
           "range": true,
           "refId": "A",
@@ -560,7 +560,36 @@
     "streaming"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "fixture",
+          "value": "gold"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metric Source",
+        "multi": false,
+        "name": "metric_source",
+        "options": [
+          {
+            "selected": true,
+            "text": "fixture",
+            "value": "gold"
+          },
+          {
+            "selected": false,
+            "text": "realtest",
+            "value": "realtest"
+          }
+        ],
+        "query": "fixture : gold, realtest : realtest",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
   },
   "time": {
     "from": "now-30m",
@@ -570,6 +599,6 @@
   "timezone": "browser",
   "title": "Ecommerce Phase 1 Overview",
   "uid": "ecommerce-phase1-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
